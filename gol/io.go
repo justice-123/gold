@@ -1,7 +1,6 @@
 package gol
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -28,9 +27,10 @@ type ioCommand uint8
 
 // This is a way of creating enums in Go.
 // It will evaluate to:
-//		ioOutput 	= 0
-//		ioInput 	= 1
-//		ioCheckIdle = 2
+//
+//	ioOutput 	= 0
+//	ioInput 	= 1
+//	ioCheckIdle = 2
 const (
 	ioOutput ioCommand = iota
 	ioInput
@@ -82,7 +82,7 @@ func (io *ioState) writePgmImage() {
 	ioError = file.Sync()
 	util.Check(ioError)
 
-	fmt.Println("File", filename, "output done!")
+	//fmt.Println("File", filename, "output done!")
 }
 
 // readPgmImage opens a pgm file and sends its data as an array of bytes.
@@ -121,7 +121,7 @@ func (io *ioState) readPgmImage() {
 		io.channels.input <- b
 	}
 
-	fmt.Println("File", filename, "input done!")
+	//fmt.Println("File", filename, "input done!")
 }
 
 // startIo should be the entrypoint of the io goroutine.
