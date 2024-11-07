@@ -18,25 +18,29 @@ type distributorChannels struct {
 	keyPressed <-chan rune
 }
 
-func makeNewWorld(height, width int) [][]uint8 {
-	oldWorld := make([][]uint8, height)
-	for i := range oldWorld {
-		oldWorld[i] = make([]uint8, width)
+// Create and initialize a new 2D grid with given dimensions
+func initializeWorld(height, width int) [][]uint8 {
+	world := make([][]uint8, height)
+	for i := range world {
+		world[i] = make([]uint8, width)
 	}
-	return oldWorld
+	return world
 }
 
-func readFromFile(p Params, c distributorChannels) [][]uint8 {
-	world := makeNewWorld(p.ImageHeight, p.ImageWidth)
+// Load the game state from file and return it as a 2D grid
+func loadInitialState(p Params, c distributorChannels) [][]uint8 {
+	world := initializeWorld(p.ImageHeight, p.ImageWidth)
 	filename := fmt.Sprintf("%vx%v", p.ImageWidth, p.ImageHeight)
+
 	c.ioCommand <- 1
 	c.ioFilename <- filename
+
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			value := <-c.ioInput
 			world[y][x] = value
 
-			if world[y][x] == 255 {
+			if value == 255 {
 				c.events <- CellFlipped{
 					CompletedTurns: 0,
 					Cell:           util.Cell{X: x, Y: y},
@@ -49,42 +53,53 @@ func readFromFile(p Params, c distributorChannels) [][]uint8 {
 	return world
 }
 
-func makeOutputTurnWithTurnNum(p Params, c distributorChannels, turns int, world [][]uint8) {
-
-	// add a get output to the command channel
+// Output the game state to a file and notify completion
+func saveGameState(p Params, c distributorChannels, turns int, world [][]uint8) {
 	c.ioCommand <- ioOutput
 	filename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turns)
 	c.ioFilename <- filename
 
-	// add one pixel at a time to the output channel
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			c.ioOutput <- world[y][x]
 		}
 	}
 
-	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 	c.events <- ImageOutputComplete{turns, filename}
 }
 
-func makeCall(client *rpc.Client, req stubs.Request, res *stubs.Response) {
-	err := client.Call(stubs.Turn, req, res)
+// Send an RPC call to the server and retrieve the updated game state
+func executeTurn(client *rpc.Client, req stubs.Request, res *stubs.Response) {
+	if err := client.Call(stubs.Turn, req, res); err != nil {
+		log.Fatal("RPC call error:", err)
+	}
+
+	if len(res.NewWorld) == 0 || len(res.NewWorld[0]) == 0 {
+		log.Fatal("Error: Server response contains an uninitialized or empty world state")
+	}
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
+// Wait for IO operations to complete before proceeding
+func waitForIoIdle(c distributorChannels) {
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
+}
+
+// Manage client-server interaction and distribute work across routines
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
-	server := "127.0.0.1:8030"
-	client, err := rpc.Dial("tcp", server)
+	serverAddress := "127.0.0.1:8030"
+	client, err := rpc.Dial("tcp", serverAddress)
 	if err != nil {
 		log.Fatal("dialing", err)
 	}
-	done := make(chan bool, 1)
-	OldWorld := readFromFile(p, c)
+	defer client.Close()
+
+	initialWorld := loadInitialState(p, c)
 
 	req := stubs.Request{
-		OldWorld:    OldWorld,
+		OldWorld:    initialWorld,
 		Turns:       p.Turns,
 		Threads:     p.Threads,
 		ImageWidth:  p.ImageWidth,
@@ -92,22 +107,15 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	res := new(stubs.Response)
 
-	makeCall(client, req, res)
-	done <- true
+	executeTurn(client, req, res)
 
-	makeOutputTurnWithTurnNum(p, c, res.Turns, res.NewWorld)
-	aliveCells := res.AliveCellLocation
-	finalCompleteMsg := FinalTurnComplete{
+	saveGameState(p, c, res.Turns, res.NewWorld)
+	c.events <- FinalTurnComplete{
 		CompletedTurns: res.Turns,
-		Alive:          aliveCells,
+		Alive:          res.AliveCellLocation,
 	}
 
-	c.events <- finalCompleteMsg
-	c.ioCommand <- ioCheckIdle
-	<-c.ioIdle
-
+	waitForIoIdle(c)
 	c.events <- StateChange{res.Turns, Quitting}
-	client.Close()
-	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
 }
