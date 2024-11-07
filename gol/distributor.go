@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
-	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type distributorChannels struct {
@@ -27,24 +27,23 @@ func initializeWorld(height, width int) [][]uint8 {
 	return world
 }
 
-// Load the game state from file and return it as a 2D grid
 func loadInitialState(p Params, c distributorChannels) [][]uint8 {
 	world := initializeWorld(p.ImageHeight, p.ImageWidth)
 	filename := fmt.Sprintf("%vx%v", p.ImageWidth, p.ImageHeight)
-
-	c.ioCommand <- 1
+	c.ioCommand <- ioInput
 	c.ioFilename <- filename
 
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			value := <-c.ioInput
-			world[y][x] = value
+			world[x][y] = value
 
 			if value == 255 {
-				c.events <- CellFlipped{
-					CompletedTurns: 0,
-					Cell:           util.Cell{X: x, Y: y},
-				}
+
+				//c.events <- CellFlipped{
+				//	CompletedTurns: 0,
+				//	Cell:           util.Cell{X: x, Y: y},
+				//}
 			}
 		}
 	}
@@ -53,7 +52,6 @@ func loadInitialState(p Params, c distributorChannels) [][]uint8 {
 	return world
 }
 
-// Output the game state to a file and notify completion
 func saveGameState(p Params, c distributorChannels, turns int, world [][]uint8) {
 	c.ioCommand <- ioOutput
 	filename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turns)
@@ -61,30 +59,41 @@ func saveGameState(p Params, c distributorChannels, turns int, world [][]uint8) 
 
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- world[y][x]
+			c.ioOutput <- world[x][y]
 		}
 	}
 
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
-	c.events <- ImageOutputComplete{turns, filename}
+	//c.events <- ImageOutputComplete{turns, filename}
 }
 
 // Send an RPC call to the server and retrieve the updated game state
 func executeTurn(client *rpc.Client, req stubs.Request, res *stubs.Response) {
 	if err := client.Call(stubs.Turn, req, res); err != nil {
-		log.Fatal("RPC call error:", err)
-	}
-
-	if len(res.NewWorld) == 0 || len(res.NewWorld[0]) == 0 {
-		log.Fatal("Error: Server response contains an uninitialized or empty world state")
 	}
 }
 
-// Wait for IO operations to complete before proceeding
-func waitForIoIdle(c distributorChannels) {
-	c.ioCommand <- ioCheckIdle
-	<-c.ioIdle
+func getCount(client *rpc.Client, c distributorChannels) {
+	res := new(stubs.ResponseAlive)
+	if err := client.Call(stubs.Alive, stubs.Empty{}, res); err != nil {
+	}
+	c.events <- AliveCellsCount{res.Turn, res.NumAlive}
+}
+
+func runTicker(done chan bool, client *rpc.Client, c distributorChannels) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case _ = <-ticker.C:
+			getCount(client, c)
+
+		}
+	}
 }
 
 // Manage client-server interaction and distribute work across routines
@@ -107,6 +116,10 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	res := new(stubs.Response)
 
+	done := make(chan bool)
+	defer close(done)
+	go runTicker(done, client, c)
+
 	executeTurn(client, req, res)
 
 	saveGameState(p, c, res.Turns, res.NewWorld)
@@ -115,7 +128,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		Alive:          res.AliveCellLocation,
 	}
 
-	waitForIoIdle(c)
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
 	c.events <- StateChange{res.Turns, Quitting}
+	done <- true
 	close(c.events)
 }
