@@ -71,12 +71,6 @@ func makeOutputTurnWithTurnNum(p Params, c distributorChannels, turns int, world
 
 func makeCall(client *rpc.Client, req stubs.Request, res *stubs.Response) {
 	err := client.Call(stubs.Turn, req, res)
-	if err != nil {
-		log.Fatal("RPC call error:", err)
-	}
-	if len(res.NewWorld) == 0 || len(res.NewWorld[0]) == 0 {
-		log.Fatal("Error: Server response contains an uninitialized or empty world state 뭉치")
-	}
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
