@@ -97,6 +97,41 @@ func runTicker(done chan bool, client *rpc.Client, c distributorChannels) {
 	}
 }
 
+//func paused(c distributorChannels, p Params) {
+//	c.events <- StateChange{turn.get(), Paused}
+//	for keyNew := range c.keyPresses {
+//		switch keyNew {
+//		case 's':
+//			makeOutputOld(worldGlobal.giveWhole(), p, c, turn.get())
+//		case 'p':
+//			c.events <- StateChange{turn.get(), Executing}
+//			pause.Done()
+//			return
+//		case 'q':
+//			end.setTrue()
+//			pause.Done()
+//			return
+//		}
+//	}
+//}
+//
+//func runKeyPressController(c distributorChannels, p Params) {
+//	for key := range c.keyPresses {
+//		switch key {
+//		case 's':
+//			snapshot.setTrue()
+//		case 'q':
+//			end.setTrue()
+//			return
+//		case 'p':
+//			executingKeyPress.Add(1)
+//			pause.Add(1)
+//			paused(c, p)
+//			executingKeyPress.Done()
+//		}
+//	}
+//}
+
 // Manage client-server interaction and distribute work across routines
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	serverAddress := "127.0.0.1:8030"
@@ -120,6 +155,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	done := make(chan bool)
 	defer close(done)
 	go runTicker(done, client, c)
+	//go runPressController
 
 	executeTurn(client, req, res)
 
