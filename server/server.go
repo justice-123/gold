@@ -5,9 +5,69 @@ import (
 	"log"
 	"net"
 	"net/rpc"
+	"sync"
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
+
+type BoolContainer struct {
+	mu     sync.Mutex
+	status bool
+}
+
+type IntContainer2 struct {
+	mu    sync.Mutex
+	value int
+	turn  int
+}
+
+func (c *BoolContainer) get() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.status
+}
+
+func (c *BoolContainer) setTrue() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.status = true
+}
+
+func (c *BoolContainer) setFalse() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.status = false
+}
+
+func (c *IntContainer2) getTurn() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.turn
+}
+
+func (c *IntContainer2) getCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.value
+}
+
+func (c *IntContainer2) set(turnsCompleted, count int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.value = count
+	c.turn = turnsCompleted
+}
+
+var waitingForCount sync.WaitGroup
+
+var getCount BoolContainer
+var aliveCount IntContainer2
 
 func makeNewWorld(height, width int) [][]uint8 {
 	newWorld := make([][]uint8, height)
@@ -21,24 +81,12 @@ func getAliveCells(height, width int, world [][]uint8) []util.Cell {
 	aliveCells := make([]util.Cell, 0)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			if world[y][x] == 255 {
+			if world[x][y] == 255 {
 				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 			}
 		}
 	}
 	return aliveCells
-}
-
-func getNumAliveCells(height, width int, world [][]uint8) int {
-	num := 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			if world[y][x] == 255 {
-				num++
-			}
-		}
-	}
-	return num
 }
 
 func calculateNeighbor(x, y int, world [][]uint8, height, width int) int {
@@ -93,29 +141,54 @@ func calculateNextWorld(world [][]uint8, height, width int) [][]uint8 {
 
 type Server struct{}
 
+func (s *Server) GetAliveCells(res *stubs.ResponseAlive) error {
+	getCount.setTrue()
+	waitingForCount.Add(1)
+	waitingForCount.Wait()
+	res.NumAlive = aliveCount.getCount()
+	res.Turn = aliveCount.getTurn()
+	return nil
+}
+
+func getAliveCellsFor(world [][]uint8, height, width int) int {
+	count := 0
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if world[x][y] == 255 {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 	// 초기 OldWorld 설정
 	currentWorld := req.OldWorld
 	nextWorld := makeNewWorld(req.ImageHeight, req.ImageWidth)
-
-	for t := 0; t < req.Turns; t++ {
+	turnNum := 0
+	for turnNum < req.Turns {
 		// 매 턴마다 nextWorld를 새롭게 계산
 		nextWorld = calculateNextWorld(currentWorld, req.ImageHeight, req.ImageWidth)
 
 		// 결과를 응답 구조체에 설정
-		res.AliveCellLocation = getAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
-		res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
-		res.Turns = t + 1
-
-		// 로그 출력 (디버깅 용)
-		log.Printf("Turn %d - Alive Cells: %d", t+1, res.AliveCell)
+		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
+		turnNum++
 
 		// 다음 턴을 위해 world 교체
-		currentWorld, nextWorld = nextWorld, currentWorld
+		currentWorld = nextWorld
+
+		if getCount.get() {
+			getCount.setFalse()
+			aliveCount.set(turnNum, getAliveCellsFor(currentWorld, req.ImageHeight, req.ImageWidth))
+			waitingForCount.Done()
+		}
 	}
 
 	// 최종 상태 설정
+	res.Turns = turnNum
 	res.NewWorld = currentWorld
+	res.AliveCellLocation = getAliveCells(req.ImageHeight, req.ImageWidth, currentWorld)
 	return nil
 }
 
