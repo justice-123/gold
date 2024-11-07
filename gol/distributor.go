@@ -6,6 +6,7 @@ import (
 	"net/rpc"
 	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
+	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type distributorChannels struct {
@@ -15,7 +16,7 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
-	keyPressed <-chan rune
+	keyPresses <-chan rune
 }
 
 // Create and initialize a new 2D grid with given dimensions
@@ -40,10 +41,10 @@ func loadInitialState(p Params, c distributorChannels) [][]uint8 {
 
 			if value == 255 {
 
-				//c.events <- CellFlipped{
-				//	CompletedTurns: 0,
-				//	Cell:           util.Cell{X: x, Y: y},
-				//}
+				c.events <- CellFlipped{
+					CompletedTurns: 0,
+					Cell:           util.Cell{X: x, Y: y},
+				}
 			}
 		}
 	}
@@ -82,6 +83,12 @@ func getCount(client *rpc.Client, c distributorChannels) {
 	c.events <- AliveCellsCount{res.Turn, res.NumAlive}
 }
 
+func quitGame(client *rpc.Client) {
+	if err := client.Call(stubs.Quit, stubs.EmptyReq{}, stubs.EmptyRes{}); err != nil {
+		fmt.Println(err)
+	}
+}
+
 func runTicker(done chan bool, client *rpc.Client, c distributorChannels) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -97,40 +104,42 @@ func runTicker(done chan bool, client *rpc.Client, c distributorChannels) {
 	}
 }
 
-//func paused(c distributorChannels, p Params) {
-//	c.events <- StateChange{turn.get(), Paused}
-//	for keyNew := range c.keyPresses {
+//func paused(c distributorChannels, p Params, res stubs.Response) {
+//	c.events <- StateChange{res.Turns, Paused}
+//	for keyNew := range c.keyPressed {
 //		switch keyNew {
 //		case 's':
-//			makeOutputOld(worldGlobal.giveWhole(), p, c, turn.get())
-//		case 'p':
-//			c.events <- StateChange{turn.get(), Executing}
-//			pause.Done()
-//			return
-//		case 'q':
-//			end.setTrue()
-//			pause.Done()
-//			return
+//			saveGameState(p, c, res.Turns, res.NewWorld)
+//			//case 'p':
+//			//	c.events <- StateChange{res.Turns, Executing}
+//			//	pause.Done()
+//			//	return
+//			//case 'q':
+//			//	end.setTrue()
+//			//	pause.Done()
+//			//	return
 //		}
 //	}
 //}
-//
-//func runKeyPressController(c distributorChannels, p Params) {
-//	for key := range c.keyPresses {
-//		switch key {
-//		case 's':
-//			snapshot.setTrue()
-//		case 'q':
-//			end.setTrue()
-//			return
-//		case 'p':
-//			executingKeyPress.Add(1)
-//			pause.Add(1)
-//			paused(c, p)
-//			executingKeyPress.Done()
-//		}
-//	}
-//}
+
+func runKeyPressController(client *rpc.Client, c distributorChannels, p Params) {
+	for key := range c.keyPresses {
+		switch key {
+		//case 's':
+		//	client.Call(stubs.Turn, req.KeyPress, res)
+		//	saveGameState(p, c, res.Turn, res.World)
+
+		case 'k':
+			quitGame(client)
+			return
+			//case 'p':go run .
+			//	executingKeyPress.Add(1)
+			//	pause.Add(1)
+			//	paused(c, p)
+			//	executingKeyPress.Done()
+		}
+	}
+}
 
 // Manage client-server interaction and distribute work across routines
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
@@ -150,12 +159,27 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		ImageWidth:  p.ImageWidth,
 		ImageHeight: p.ImageHeight,
 	}
+
+	reqk := stubs.RequestKeyPress{}
+	go func() {
+		for {
+			select {
+			case s := <-keyPresses: // Listen for key press events
+				reqk.KeyPress = s
+				// Send the key press to the server
+				//err := client.Call(stubs., reqk, &stubs.ResponseKey{})
+				if err != nil {
+					log.Printf("Error sending key press: %v", err)
+				}
+			}
+		}
+	}()
 	res := new(stubs.Response)
 
 	done := make(chan bool)
 	defer close(done)
 	go runTicker(done, client, c)
-	//go runPressController
+	go runKeyPressController(client, c, p)
 
 	executeTurn(client, req, res)
 
