@@ -3,6 +3,14 @@ package stubs
 import "uk.ac.bris.cs/gameoflife/util"
 
 var Turn = "Server.ProcessTurns"
+var Alive = "Server.GetNumAliveCells"
+
+type AliveCellsRequest struct {
+}
+
+type AliveCellsResponse struct {
+	AliveCount int
+}
 
 type Response struct {
 	NewWorld          [][]uint8
@@ -21,21 +29,10 @@ type Request struct {
 	End         int
 }
 
-type RequestAliveCells struct {
-	CurrentWorld [][]uint8
+type Empty struct {
 }
 
-type ResponseAliveCells struct {
-	AliveCells         int
-	AliveCellsLocation []util.Cell
-}
-
-type Server struct {
-	ServerAddress string
-	Callback      string
-}
-
-type ServerId struct {
-	ServerId int
-	Status   bool
+type ResponseAlive struct {
+	Turn     int
+	NumAlive int
 }
