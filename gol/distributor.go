@@ -76,7 +76,8 @@ func executeTurn(client *rpc.Client, req stubs.Request, res *stubs.Response) {
 
 func getCount(client *rpc.Client, c distributorChannels) {
 	res := new(stubs.ResponseAlive)
-	if err := client.Call(stubs.Alive, stubs.Empty{}, res); err != nil {
+	if err := client.Call(stubs.Alive, stubs.RequestAlive{}, res); err != nil {
+		fmt.Println(err)
 	}
 	c.events <- AliveCellsCount{res.Turn, res.NumAlive}
 }
