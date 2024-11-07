@@ -202,22 +202,40 @@ func (s *Server) GetAliveCells(_ stubs.RequestAlive, res *stubs.ResponseAlive) e
 	res.Turn = aliveCount.getTurn()
 	return nil
 }
+
+//func (s *Server) HandleKeyPress(req stubs.RequestKeyPress, res *stubs.ResponseKey) error {
+//	switch req.KeyPress {
+//	case 'p': // Pause
+//		// Logic to pause the game
+//		log.Println("Game paused")
+//		res.Acknowledged = true
+//	case 'q': // Quit
+//		// Logic to quit the game
+//		log.Println("Game quitting")
+//		res.Acknowledged = true
+//	// Handle other keypresses as needed
+//	default:
+//		res.Acknowledged = false
+//	}
+//}
+
 func (s *Server) GetSnapshot() error {
+	// we want to get back the state of the board
 	snapShot.setTrue()
 	waitingSnapShot.Add(1)
 	waitingSnapShot.Wait()
 	return nil
 }
 func (s *Server) Pause() error {
+	// pause the processing
 	pause.setTrue()
 	waitingPause.Add(1)
 	waitingPause.Wait()
 	return nil
 }
-func (s *Server) Quit() error {
+func (s *Server) Quit(_ stubs.RequestAlive, _ *stubs.ResponseAlive) error {
+	// quit once next turn is complete
 	quit.setTrue()
-	waitingQuit.Add(1)
-	waitingQuit.Wait()
 	return nil
 }
 
@@ -251,9 +269,9 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 		currentWorld = nextWorld
 
 		//pause.Wait()
-		//if end.get() {
-		//	break
-		//}
+		if quit.get() {
+			break
+		}
 		if snapShot.get() {
 			snapShot.setFalse()
 			res.NewWorld = World.getWorld()
@@ -267,7 +285,6 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 		}
 	}
 
-	// 최종 상태 설정
 	res.Turns = turn
 	res.NewWorld = currentWorld
 	res.AliveCellLocation = getAliveCells(req.ImageHeight, req.ImageWidth, currentWorld)
