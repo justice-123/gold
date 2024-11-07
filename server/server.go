@@ -21,6 +21,12 @@ type IntContainer2 struct {
 	turn  int
 }
 
+type WorldContainer struct {
+	mu    sync.Mutex
+	world [][]uint8
+	turn  int
+}
+
 func (c *BoolContainer) get() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,6 +62,19 @@ func (c *IntContainer2) getCount() int {
 	return c.value
 }
 
+func (w *WorldContainer) getWorld() [][]uint8 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.world
+}
+func (w *WorldContainer) getTurn() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.turn
+}
+
 func (c *IntContainer2) set(turnsCompleted, count int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -68,6 +87,23 @@ var waitingForCount sync.WaitGroup
 
 var getCount BoolContainer
 var aliveCount IntContainer2
+
+var snapShot BoolContainer
+var waitingSnapShot sync.WaitGroup
+
+var pause BoolContainer
+
+var waitingPause sync.WaitGroup
+
+var quit BoolContainer
+
+var waitingQuit sync.WaitGroup
+
+var shut BoolContainer
+
+var waitingShut sync.WaitGroup
+
+var World WorldContainer
 
 func makeNewWorld(height, width int) [][]uint8 {
 	newWorld := make([][]uint8, height)
@@ -139,15 +175,9 @@ func calculateNextWorld(world [][]uint8, height, width int) [][]uint8 {
 	return newWorld
 }
 
-type Server struct{}
-
-func (s *Server) GetAliveCells(res *stubs.ResponseAlive) error {
-	getCount.setTrue()
-	waitingForCount.Add(1)
-	waitingForCount.Wait()
-	res.NumAlive = aliveCount.getCount()
-	res.Turn = aliveCount.getTurn()
-	return nil
+func getCurrentWorld(req stubs.Request) [][]uint8 {
+	World := req.OldWorld
+	return World
 }
 
 func getAliveCellsFor(world [][]uint8, height, width int) int {
@@ -162,31 +192,83 @@ func getAliveCellsFor(world [][]uint8, height, width int) int {
 	return count
 }
 
+type Server struct{}
+
+func (s *Server) GetAliveCells(_ stubs.RequestAlive, res *stubs.ResponseAlive) error {
+	getCount.setTrue()
+	waitingForCount.Add(1)
+	waitingForCount.Wait()
+	res.NumAlive = aliveCount.getCount()
+	res.Turn = aliveCount.getTurn()
+	return nil
+}
+func (s *Server) GetSnapshot() error {
+	snapShot.setTrue()
+	waitingSnapShot.Add(1)
+	waitingSnapShot.Wait()
+	return nil
+}
+func (s *Server) Pause() error {
+	pause.setTrue()
+	waitingPause.Add(1)
+	waitingPause.Wait()
+	return nil
+}
+func (s *Server) Quit() error {
+	quit.setTrue()
+	waitingQuit.Add(1)
+	waitingQuit.Wait()
+	return nil
+}
+
+func (s *Server) Unpause() error {
+	pause.setFalse()
+	waitingPause.Add(1)
+	waitingPause.Wait()
+	return nil
+}
+func (s *Server) ShutDistribute() error {
+	shut.setTrue()
+	waitingShut.Add(1)
+	waitingShut.Wait()
+	return nil
+}
+
 func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 	// 초기 OldWorld 설정
 	currentWorld := req.OldWorld
 	nextWorld := makeNewWorld(req.ImageHeight, req.ImageWidth)
-	turnNum := 0
-	for turnNum < req.Turns {
+	turn := 0
+	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
 		nextWorld = calculateNextWorld(currentWorld, req.ImageHeight, req.ImageWidth)
 
 		// 결과를 응답 구조체에 설정
 		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
-		turnNum++
+		turn = turnNum + 1
 
 		// 다음 턴을 위해 world 교체
 		currentWorld = nextWorld
 
+		//pause.Wait()
+		//if end.get() {
+		//	break
+		//}
+		if snapShot.get() {
+			snapShot.setFalse()
+			res.NewWorld = World.getWorld()
+			res.Turns = World.turn
+			// send back a response to say to call 'saveGameState(p, c, res.Turns, res.NewWorld)'
+		}
 		if getCount.get() {
 			getCount.setFalse()
-			aliveCount.set(turnNum, getAliveCellsFor(currentWorld, req.ImageHeight, req.ImageWidth))
+			aliveCount.set(turn, getAliveCellsFor(currentWorld, req.ImageHeight, req.ImageWidth))
 			waitingForCount.Done()
 		}
 	}
 
 	// 최종 상태 설정
-	res.Turns = turnNum
+	res.Turns = turn
 	res.NewWorld = currentWorld
 	res.AliveCellLocation = getAliveCells(req.ImageHeight, req.ImageWidth, currentWorld)
 	return nil
