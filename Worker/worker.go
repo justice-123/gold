@@ -17,7 +17,7 @@ func (n *Node) GetSegment(req stubs.WorkerRequest, res *stubs.WorkerResponse) er
 	return nil
 }
 
-func (n *Node) Quit(req stubs.WorkerRequest, res *stubs.WorkerResponse) error {
+func (n *Node) Quit(_ stubs.WorkerRequest, _ *stubs.WorkerResponse) error {
 	quitting <- true
 	return nil
 }
@@ -30,22 +30,22 @@ func calculateNextWorld(world [][]uint8, start, end, width int) [][]uint8 {
 
 	for y := start; y < end; y++ {
 		for x := 0; x < width; x++ {
-			neighbors := calculateNeighbor(x, y, world, start, end, width)
+			neighbors := calculateNeighbor(x, y, world, width)
 			if neighbors < 2 || neighbors > 3 {
-				newWorld[x][y] = 0
+				newWorld[y][x] = 0
 			} else if neighbors == 3 {
-				newWorld[x][y] = 255
+				newWorld[y][x] = 255
 			} else if neighbors == 2 && world[y][x] == 255 {
-				newWorld[x][y] = 255
+				newWorld[y][x] = 255
 			} else {
-				newWorld[x][y] = 0
+				newWorld[y][x] = 0
 			}
 		}
 	}
 	return newWorld
 }
 
-func calculateNeighbor(x, y int, world [][]uint8, start, end, width int) int {
+func calculateNeighbor(x, y int, world [][]uint8, width int) int {
 	aliveNeighbor := 0
 	for i := -1; i <= 1; i++ {
 		for j := -1; j <= 1; j++ {

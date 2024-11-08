@@ -271,12 +271,12 @@ func makeNewWorld(height, width int) [][]uint8 {
 func runWorker(client *rpc.Client, size, start, end int, currentWorld [][]uint8, splitSegment chan [][]uint8) {
 	res := new(stubs.WorkerResponse)
 	req := stubs.WorkerRequest{
-		currentWorld,
-		start,
-		end,
-		size,
+		WholeWorld: currentWorld,
+		Start:      start,
+		End:        end,
+		Size:       size,
 	}
-	if err := client.Call(stubs.CalculateWorldSegment, req, &res); err != nil {
+	if err := client.Call(stubs.CalculateWorldSegment, req, res); err != nil {
 		fmt.Println(err)
 	}
 	splitSegment <- res.Segment
@@ -307,10 +307,10 @@ func closeWorkers(workers []*rpc.Client) {
 }
 
 func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
-	newWorld := make([][]uint8, size)
-	splitSegments := make([]chan [][]uint8, size)
+	var newWorld [][]uint8
+	splitSegments := make([]chan [][]uint8, workerNum)
 	for i := range splitSegments {
-		splitSegments[i] = make(chan [][]uint8, 1)
+		splitSegments[i] = make(chan [][]uint8)
 	}
 
 	serverAddress := "127.0.0.1"
@@ -326,13 +326,13 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	}
 
 	setupWorkers(workers, size, workerNum, currentWorld, splitSegments)
-
 	// no wait group needed as channel waits for worker to finish
 	for i := 0; i < workerNum; i++ {
-		newWorld = append(newWorld, <-splitSegments[i]...)
+		temp := <-splitSegments[i]
+		newWorld = append(newWorld, temp...)
 	}
 
-	closeWorkers(workers)
+	//closeWorkers(workers)
 	return newWorld
 }
 
@@ -351,7 +351,7 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
-		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, 1)
+		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, 4)
 
 		// 결과를 응답 구조체에 설정
 		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
