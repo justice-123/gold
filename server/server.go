@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/rpc"
@@ -39,6 +40,32 @@ type WorldContainer struct {
 	mu    sync.Mutex
 	world [][]uint8
 	turn  int
+}
+
+type LargeWorldContainer struct {
+	mu     sync.Mutex
+	worlds [][][]uint8
+}
+
+func (c *LargeWorldContainer) setAtIndex(i int, w [][]uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.worlds[i] = w
+}
+
+func (c *LargeWorldContainer) getAtIndex(i int) [][]uint8 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.worlds[i]
+}
+
+func (c *LargeWorldContainer) setup(u [][][]uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.worlds = u
 }
 
 func (c *BoolContainer) get() bool {
@@ -136,17 +163,10 @@ func (c *IntContainer2) set(turnsCompleted, count int) {
 var pausedTurn IntContainer
 var getCount, paused, snapShot, quit, shut, clientQuit BoolContainer
 var aliveCount IntContainer2
-var waitingSnapShot, pause, waitingForCount, waitingPause, waitingShut, makingSnapshot sync.WaitGroup
+var waitingSnapShot, pause, waitingForCount, waitingPause, waitingShut, makingSnapshot, working sync.WaitGroup
 var world, snapshotInfo WorldContainer
 var restartInformation RestartInfo
-
-func makeNewWorld(height, width int) [][]uint8 {
-	newWorld := make([][]uint8, height)
-	for i := range newWorld {
-		newWorld[i] = make([]uint8, width)
-	}
-	return newWorld
-}
+var splitWorld LargeWorldContainer
 
 func getAliveCells(height, width int, world [][]uint8) []util.Cell {
 	aliveCells := make([]util.Cell, 0)
@@ -158,56 +178,6 @@ func getAliveCells(height, width int, world [][]uint8) []util.Cell {
 		}
 	}
 	return aliveCells
-}
-
-func calculateNeighbor(x, y int, world [][]uint8, height, width int) int {
-	aliveNeighbor := 0
-	for i := -1; i <= 1; i++ {
-		for j := -1; j <= 1; j++ {
-			ny, nx := y+i, x+j
-			if nx < 0 {
-				nx = width - 1
-			} else if nx == width {
-				nx = 0
-			} else {
-				nx = nx % width
-			}
-
-			if ny < 0 {
-				ny = height - 1
-			} else if ny == height {
-				ny = 0
-			} else {
-				ny = ny % height
-			}
-
-			if world[ny][nx] == 255 {
-				if !(i == 0 && j == 0) {
-					aliveNeighbor++
-				}
-			}
-		}
-	}
-	return aliveNeighbor
-}
-
-func calculateNextWorld(world [][]uint8, height, width int) [][]uint8 {
-	newWorld := makeNewWorld(height, width)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			neighbors := calculateNeighbor(x, y, world, height, width)
-			if neighbors < 2 || neighbors > 3 {
-				newWorld[y][x] = 0
-			} else if neighbors == 3 {
-				newWorld[y][x] = 255
-			} else if neighbors == 2 && world[y][x] == 255 {
-				newWorld[y][x] = 255
-			} else {
-				newWorld[y][x] = 0
-			}
-		}
-	}
-	return newWorld
 }
 
 func getAliveCellsFor(world [][]uint8, height, width int) int {
@@ -290,6 +260,82 @@ func (s *Server) ShutDistribute() error {
 	return nil
 }
 
+func makeNewWorld(height, width int) [][]uint8 {
+	newWorld := make([][]uint8, height)
+	for i := range newWorld {
+		newWorld[i] = make([]uint8, width)
+	}
+	return newWorld
+}
+
+func runWorker(client *rpc.Client, size, start, end int, currentWorld [][]uint8, splitSegment chan [][]uint8) {
+	res := new(stubs.WorkerResponse)
+	req := stubs.WorkerRequest{
+		currentWorld,
+		start,
+		end,
+		size,
+	}
+	if err := client.Call(stubs.CalculateWorldSegment, req, &res); err != nil {
+		fmt.Println(err)
+	}
+	splitSegment <- res.Segment
+}
+
+func setupWorkers(workers []*rpc.Client, size, workerNum int, currentWorld [][]uint8, splitSegments []chan [][]uint8) {
+	numRows := size / workerNum
+
+	i := 0
+	for i < workerNum-1 {
+		go runWorker(workers[i], size, i*numRows, numRows*(i+1), currentWorld, splitSegments[i])
+		i++
+	}
+
+	// final worker does the remaining rows
+	go runWorker(workers[i], size, i*numRows, size, currentWorld, splitSegments[i])
+}
+
+func closeWorkers(workers []*rpc.Client) {
+	req := new(stubs.WorkerRequest)
+	res := new(stubs.WorkerResponse)
+	for _, worker := range workers {
+		if err := worker.Call(stubs.End, req, &res); err != nil {
+			fmt.Println(err)
+		}
+		worker.Close()
+	}
+}
+
+func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
+	newWorld := make([][]uint8, size)
+	splitSegments := make([]chan [][]uint8, size)
+	for i := range splitSegments {
+		splitSegments[i] = make(chan [][]uint8, 1)
+	}
+
+	serverAddress := "127.0.0.1"
+	workerPorts := [4]string{":8040", ":8050", ":8060", ":8070"}
+	workers := make([]*rpc.Client, workerNum)
+
+	for i := 0; i < workerNum; i++ {
+		worker, err := rpc.Dial("tcp", fmt.Sprintf("%v%v", serverAddress, workerPorts[i]))
+		if err != nil {
+			fmt.Println(err)
+		}
+		workers[i] = worker
+	}
+
+	setupWorkers(workers, size, workerNum, currentWorld, splitSegments)
+
+	// no wait group needed as channel waits for worker to finish
+	for i := 0; i < workerNum; i++ {
+		newWorld = append(newWorld, <-splitSegments[i]...)
+	}
+
+	closeWorkers(workers)
+	return newWorld
+}
+
 func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 	currentWorld := req.OldWorld
 	nextWorld := makeNewWorld(req.ImageHeight, req.ImageWidth)
@@ -302,9 +348,10 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 			return errors.New("nothing to restart with")
 		}
 	}
+
 	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
-		nextWorld = calculateNextWorld(currentWorld, req.ImageHeight, req.ImageWidth)
+		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, 1)
 
 		// 결과를 응답 구조체에 설정
 		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
