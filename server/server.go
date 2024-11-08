@@ -12,6 +12,8 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
+var distWorkerNum int
+
 var quitting = make(chan bool, 1)
 
 type RestartInfo struct {
@@ -314,7 +316,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	}
 
 	serverAddress := "127.0.0.1"
-	workerPorts := [4]string{":8040", ":8050", ":8060", ":8070"}
+	workerPorts := [8]string{":8040", ":8050", ":8060", ":8070", ":8080", ":8090", ":9000", ":9010"}
 	workers := make([]*rpc.Client, workerNum)
 
 	for i := 0; i < workerNum; i++ {
@@ -328,8 +330,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	setupWorkers(workers, size, workerNum, currentWorld, splitSegments)
 	// no wait group needed as channel waits for worker to finish
 	for i := 0; i < workerNum; i++ {
-		temp := <-splitSegments[i]
-		newWorld = append(newWorld, temp...)
+		newWorld = append(newWorld, <-splitSegments[i]...)
 	}
 
 	//closeWorkers(workers)
@@ -351,7 +352,7 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
-		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, 4)
+		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, distWorkerNum)
 
 		// 결과를 응답 구조체에 설정
 		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
@@ -400,7 +401,10 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 func main() {
 	serverPort := flag.String("port", "8030", "Port to Listen")
+	workers := flag.Int("workerNum", 2, "Workers to use")
 	flag.Parse()
+
+	distWorkerNum = *workers
 
 	rpc.Register(&Server{})
 	listener, err := net.Listen("tcp", "127.0.0.1:"+*serverPort)

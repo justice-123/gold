@@ -27,18 +27,17 @@ func calculateNextWorld(world [][]uint8, start, end, width int) [][]uint8 {
 	for i := 0; i < end-start; i++ {
 		newWorld[i] = make([]uint8, width)
 	}
-
 	for y := start; y < end; y++ {
 		for x := 0; x < width; x++ {
 			neighbors := calculateNeighbor(x, y, world, width)
 			if neighbors < 2 || neighbors > 3 {
-				newWorld[y][x] = 0
+				newWorld[y-start][x] = 0
 			} else if neighbors == 3 {
-				newWorld[y][x] = 255
+				newWorld[y-start][x] = 255
 			} else if neighbors == 2 && world[y][x] == 255 {
-				newWorld[y][x] = 255
+				newWorld[y-start][x] = 255
 			} else {
-				newWorld[y][x] = 0
+				newWorld[y-start][x] = 0
 			}
 		}
 	}
