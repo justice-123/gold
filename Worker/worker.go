@@ -80,7 +80,7 @@ func main() {
 	flag.Parse()
 
 	rpc.Register(&Node{})
-	listener, err := net.Listen("tcp", "137.222.229.9:"+*serverPort)
+	listener, err := net.Listen("tcp", "3.82.211.83:"+*serverPort)
 	if err != nil {
 		log.Fatal("Listener error:", err)
 	}
