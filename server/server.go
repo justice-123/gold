@@ -275,7 +275,6 @@ func (s *Server) ClientQuit(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
 func (s *Server) ClientQuitPause(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
 	clientQuit.setTrue()
 	pause.Done()
-	pause.Add(1)
 	return nil
 }
 
