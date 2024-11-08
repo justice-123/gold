@@ -315,7 +315,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 		splitSegments[i] = make(chan [][]uint8)
 	}
 
-	serverAddress := "127.0.0.1"
+	serverAddress := "13.40.70.81"
 	workerPorts := [8]string{":8040", ":8050", ":8060", ":8070", ":8080", ":8090", ":9000", ":9010"}
 	workers := make([]*rpc.Client, workerNum)
 
@@ -407,7 +407,7 @@ func main() {
 	distWorkerNum = *workers
 
 	rpc.Register(&Server{})
-	listener, err := net.Listen("tcp", "127.0.0.1:"+*serverPort)
+	listener, err := net.Listen("tcp", "13.40.70.81:"+*serverPort)
 	if err != nil {
 		log.Fatal("Listener error:", err)
 	}
