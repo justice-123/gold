@@ -407,7 +407,7 @@ func main() {
 	distWorkerNum = *workers
 
 	rpc.Register(&Server{})
-	listener, err := net.Listen("tcp", "13.40.70.81:"+*serverPort)
+	listener, err := net.Listen("tcp", "0.0.0.0:"+*serverPort)
 	if err != nil {
 		log.Fatal("Listener error:", err)
 	}
