@@ -10,6 +10,9 @@ type Params struct {
 
 // Run starts the processing of Game of Life. It should initialise channels and goroutines.
 func Run(p Params, events chan<- Event, keyPresses <-chan rune) {
+	// this must be commented out for testing and the line at the bottom should be uncommented
+	//restart := flag.Bool("restart", false, "Did you disconnect and would like to continue")
+	//flag.Parse()
 
 	//	TODO: Put the missing channels in here.
 
@@ -35,7 +38,10 @@ func Run(p Params, events chan<- Event, keyPresses <-chan rune) {
 		ioFilename: ioFilename,
 		ioOutput:   ioOutput,
 		ioInput:    ioInput,
-		keyPressed: keyPresses,
+		keyPresses: keyPresses,
 	}
-	distributor(p, distributorChannels, keyPresses)
+
+	distributor(p, distributorChannels, false)
+	//distributor(p, distributorChannels, *restart)
+
 }

@@ -2,17 +2,25 @@ package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
 
-var Turn = "Server.ProcessTurns"
+var Turns = "Server.ProcessTurns"
 var Alive = "Server.GetAliveCells"
-var Quit = "Server.Quit"
-
-var KeyPressHandler = "Server.HandleKeyPress"
+var QuitServer = "Server.Quit"
+var Snapshot = "Server.GetSnapshot"
+var PausedSnapshot = "Server.GetSnapshotPaused"
+var Pause = "Server.PauseProcessing"
+var Unpause = "Server.UnpauseProcessing"
+var QuitClient = "Server.ClientQuit"
+var QuitClientPaused = "Server.ClientQuitPause"
 
 type AliveCellsRequest struct {
 }
 
 type AliveCellsResponse struct {
 	AliveCount int
+}
+
+type ResponseTurn struct {
+	Turn int
 }
 
 type Response struct {
@@ -30,6 +38,7 @@ type Request struct {
 	ImageHeight int
 	Start       int
 	End         int
+	Restart     bool
 }
 
 type Empty struct {
@@ -49,6 +58,11 @@ type ResponseKey struct {
 	World        [][]uint8
 	Turn         int
 	Acknowledged bool
+}
+
+type ResponseSnapshot struct {
+	NewWorld [][]uint8
+	Turns    int
 }
 
 type EmptyRes struct {

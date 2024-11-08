@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -9,6 +10,14 @@ import (
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
+
+var quitting = make(chan bool, 1)
+
+type RestartInfo struct {
+	restart bool
+	turns   int
+	world   [][]uint8
+}
 
 type BoolContainer struct {
 	mu     sync.Mutex
@@ -19,6 +28,11 @@ type IntContainer2 struct {
 	mu    sync.Mutex
 	value int
 	turn  int
+}
+
+type IntContainer struct {
+	mu   sync.Mutex
+	turn int
 }
 
 type WorldContainer struct {
@@ -55,6 +69,20 @@ func (c *IntContainer2) getTurn() int {
 	return c.turn
 }
 
+func (c *IntContainer) get() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.turn
+}
+
+func (c *IntContainer) set(val int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.turn = val
+}
+
 func (c *IntContainer2) getCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -75,6 +103,28 @@ func (w *WorldContainer) getTurn() int {
 	return w.turn
 }
 
+func (w *WorldContainer) set(new [][]uint8, turn int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.world = new
+	w.turn = turn
+}
+
+func (w *WorldContainer) setWorld(new [][]uint8) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.world = new
+}
+
+func (w *WorldContainer) setTurn(new int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.turn = new
+}
+
 func (c *IntContainer2) set(turnsCompleted, count int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -83,27 +133,12 @@ func (c *IntContainer2) set(turnsCompleted, count int) {
 	c.turn = turnsCompleted
 }
 
-var waitingForCount sync.WaitGroup
-
-var getCount BoolContainer
+var pausedTurn IntContainer
+var getCount, paused, snapShot, quit, shut, clientQuit BoolContainer
 var aliveCount IntContainer2
-
-var snapShot BoolContainer
-var waitingSnapShot sync.WaitGroup
-
-var pause BoolContainer
-
-var waitingPause sync.WaitGroup
-
-var quit BoolContainer
-
-var waitingQuit sync.WaitGroup
-
-var shut BoolContainer
-
-var waitingShut sync.WaitGroup
-
-var World WorldContainer
+var waitingSnapShot, pause, waitingForCount, waitingPause, waitingShut, makingSnapshot sync.WaitGroup
+var world, snapshotInfo WorldContainer
+var restartInformation RestartInfo
 
 func makeNewWorld(height, width int) [][]uint8 {
 	newWorld := make([][]uint8, height)
@@ -175,11 +210,6 @@ func calculateNextWorld(world [][]uint8, height, width int) [][]uint8 {
 	return newWorld
 }
 
-func getCurrentWorld(req stubs.Request) [][]uint8 {
-	World := req.OldWorld
-	return World
-}
-
 func getAliveCellsFor(world [][]uint8, height, width int) int {
 	count := 0
 	for y := 0; y < height; y++ {
@@ -203,46 +233,55 @@ func (s *Server) GetAliveCells(_ stubs.RequestAlive, res *stubs.ResponseAlive) e
 	return nil
 }
 
-//func (s *Server) HandleKeyPress(req stubs.RequestKeyPress, res *stubs.ResponseKey) error {
-//	switch req.KeyPress {
-//	case 'p': // Pause
-//		// Logic to pause the game
-//		log.Println("Game paused")
-//		res.Acknowledged = true
-//	case 'q': // Quit
-//		// Logic to quit the game
-//		log.Println("Game quitting")
-//		res.Acknowledged = true
-//	// Handle other keypresses as needed
-//	default:
-//		res.Acknowledged = false
-//	}
-//}
-
-func (s *Server) GetSnapshot() error {
+func (s *Server) GetSnapshot(_ stubs.RequestAlive, res *stubs.ResponseSnapshot) error {
 	// we want to get back the state of the board
 	snapShot.setTrue()
 	waitingSnapShot.Add(1)
 	waitingSnapShot.Wait()
+	res.Turns = snapshotInfo.getTurn()
+	res.NewWorld = snapshotInfo.getWorld()
 	return nil
 }
-func (s *Server) Pause() error {
+
+func (s *Server) GetSnapshotPaused(_ stubs.RequestAlive, res *stubs.ResponseSnapshot) error {
+	// we want to get back the state of the board
+	makingSnapshot.Add(1)
+	res.NewWorld = world.getWorld()
+	res.Turns = world.turn
+	makingSnapshot.Done()
+	return nil
+}
+
+func (s *Server) PauseProcessing(_ stubs.EmptyReq, res *stubs.ResponseTurn) error {
 	// pause the processing
-	pause.setTrue()
-	waitingPause.Add(1)
-	waitingPause.Wait()
+	//waitingPause.Add(1)
+	pause.Add(1)
+	paused.setTrue()
+	//waitingPause.Wait()
+	res.Turn = pausedTurn.get()
 	return nil
 }
-func (s *Server) Quit(_ stubs.RequestAlive, _ *stubs.ResponseAlive) error {
+func (s *Server) Quit(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
 	// quit once next turn is complete
 	quit.setTrue()
 	return nil
 }
 
-func (s *Server) Unpause() error {
-	pause.setFalse()
-	waitingPause.Add(1)
-	waitingPause.Wait()
+func (s *Server) ClientQuit(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
+	clientQuit.setTrue()
+	return nil
+}
+
+func (s *Server) ClientQuitPause(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
+	clientQuit.setTrue()
+	pause.Done()
+	pause.Add(1)
+	return nil
+}
+
+func (s *Server) UnpauseProcessing(_ stubs.EmptyReq, _ *stubs.EmptyRes) error {
+	paused.setFalse()
+	pause.Done()
 	return nil
 }
 func (s *Server) ShutDistribute() error {
@@ -253,10 +292,17 @@ func (s *Server) ShutDistribute() error {
 }
 
 func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
-	// 초기 OldWorld 설정
 	currentWorld := req.OldWorld
 	nextWorld := makeNewWorld(req.ImageHeight, req.ImageWidth)
 	turn := 0
+	if req.Restart {
+		if restartInformation.restart {
+			currentWorld = restartInformation.world
+			turn = restartInformation.turns
+		} else {
+			return errors.New("nothing to restart with")
+		}
+	}
 	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
 		nextWorld = calculateNextWorld(currentWorld, req.ImageHeight, req.ImageWidth)
@@ -267,27 +313,42 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 		// 다음 턴을 위해 world 교체
 		currentWorld = nextWorld
+		world.set(currentWorld, turn)
 
-		//pause.Wait()
+		makingSnapshot.Wait()
+
+		if paused.get() {
+			pausedTurn.set(turn)
+			//waitingPause.Done()
+			pause.Wait()
+		}
 		if quit.get() {
 			break
 		}
 		if snapShot.get() {
 			snapShot.setFalse()
-			res.NewWorld = World.getWorld()
-			res.Turns = World.turn
-			// send back a response to say to call 'saveGameState(p, c, res.Turns, res.NewWorld)'
+			snapshotInfo.set(currentWorld, turn)
+			waitingSnapShot.Done()
 		}
 		if getCount.get() {
 			getCount.setFalse()
 			aliveCount.set(turn, getAliveCellsFor(currentWorld, req.ImageHeight, req.ImageWidth))
 			waitingForCount.Done()
 		}
+		if clientQuit.get() {
+			restartInformation = RestartInfo{restart: true, turns: turn, world: currentWorld}
+			clientQuit.setFalse()
+			break
+		}
 	}
 
 	res.Turns = turn
 	res.NewWorld = currentWorld
 	res.AliveCellLocation = getAliveCells(req.ImageHeight, req.ImageWidth, currentWorld)
+
+	if quit.get() {
+		quitting <- true
+	}
 	return nil
 }
 
@@ -300,7 +361,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Listener error:", err)
 	}
-	defer listener.Close()
 	log.Println("Server listening on port", *serverPort)
-	rpc.Accept(listener)
+	defer listener.Close()
+	go rpc.Accept(listener)
+
+	_ = <-quitting
 }
