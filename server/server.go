@@ -320,7 +320,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	workers := make([]*rpc.Client, workerNum)
 
 	for i := 0; i < workerNum; i++ {
-		worker, err := rpc.Dial("tcp", fmt.Sprintf("%v%v", workerPorts[i]))
+		worker, err := rpc.Dial("tcp", workerPorts[i])
 		if err != nil {
 			fmt.Print("Error connecting to worker: ")
 			fmt.Println(err)
