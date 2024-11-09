@@ -322,6 +322,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	for i := 0; i < workerNum; i++ {
 		worker, err := rpc.Dial("tcp", fmt.Sprintf("%v%v", workerPorts[i]))
 		if err != nil {
+			fmt.Print("Error connecting to worker: ")
 			fmt.Println(err)
 		}
 		workers[i] = worker
