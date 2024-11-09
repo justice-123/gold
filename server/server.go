@@ -352,7 +352,7 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 	for turnNum := 0; turnNum < req.Turns; turnNum++ {
 		// 매 턴마다 nextWorld를 새롭게 계산
-		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, distWorkerNum)
+		nextWorld = calculateNextWorld(currentWorld, req.ImageWidth, 1)
 
 		// 결과를 응답 구조체에 설정
 		//res.AliveCell = getNumAliveCells(req.ImageHeight, req.ImageWidth, nextWorld)
@@ -401,7 +401,7 @@ func (s *Server) ProcessTurns(req stubs.Request, res *stubs.Response) error {
 
 func main() {
 	serverPort := flag.String("port", "8030", "Port to Listen")
-	workers := flag.Int("workerNum", 2, "Workers to use")
+	workers := flag.Int("workerNum", 1, "Workers to use")
 	flag.Parse()
 
 	distWorkerNum = *workers
