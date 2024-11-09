@@ -316,7 +316,7 @@ func calculateNextWorld(currentWorld [][]uint8, size, workerNum int) [][]uint8 {
 	}
 
 
-	workerPorts := [8]string{"172.31.80.251:8040", "172.31.95.36:8050", "172.31.95.121:8060", ":8070", ":8080", ":8090", ":9000", ":9010"}
+	workerPorts := [8]string{"172.31.80.251:8040", "172.31.95.36:8050", "172.31.95.121:8060"}
 	workers := make([]*rpc.Client, workerNum)
 
 	for i := 0; i < workerNum; i++ {
